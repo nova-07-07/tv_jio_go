@@ -1,0 +1,981 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>TVUI — Demo</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    html,body { height:100%; margin:0; background:#000; }
+    #app { position:relative; height:100vh; width:100vw; overflow:hidden; background:#000; }
+    video#player {
+      width:100%;
+      height:100%;
+      object-fit:cover; /* ensure video fills area (like ResizeMode.COVER) */
+      background: #000;
+      display:block;
+    }
+
+    /* bottom overlay bar */
+    .bottom-bar {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display:flex;
+      gap:12px;
+      align-items:center;
+      padding:12px 16px;
+      background: rgba(0,0,0,0.45); /* semi-transparent */
+      backdrop-filter: blur(6px);
+      color:#fff;
+      box-sizing:border-box;
+      pointer-events: auto;
+    }
+
+    .logo {
+      width:64px;
+      height:40px;
+      object-fit:contain;
+      border-radius:6px;
+      background:#111;
+    }
+
+    .info {
+      display:flex;
+      flex-direction:column;
+      flex:1;
+      min-width:0;
+    }
+
+    .channel-name { font-weight:700; font-size:18px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .show-name { color:#ddd; margin-top:4px; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .right {
+      margin-left:12px;
+      text-align:right;
+      min-width:90px;
+    }
+    .hint {
+      position:absolute;
+      left:12px; top:12px;
+      color:rgba(255,255,255,0.8);
+      background:rgba(0,0,0,0.3);
+      padding:6px 10px;
+      border-radius:6px;
+      font-size:13px;
+    }
+
+    /* small focus ring when channel changes (visual cue) */
+    .flash {
+      position:absolute; inset:0; pointer-events:none;
+      border: 2px solid rgba(255,255,255,0.06);
+      box-shadow: 0 0 40px rgba(255,255,255,0.03) inset;
+      animation: flash 500ms ease-out;
+    }
+    @keyframes flash { from { opacity:1; } to { opacity:0; } }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="hint">Click to (un)mute/play</div>
+
+    <video id="player" playsinline></video>
+
+    <div id="flash" class="flash" style="display:none;"></div>
+
+    <div class="bottom-bar" id="bottomBar">
+      <img id="logo" class="logo" src="" alt="logo" />
+      <div class="info">
+        <div id="channelName" class="channel-name"></div>
+        <div id="showName" class="show-name"></div>
+      </div>
+      <div class="right">
+        <div id="endTime"> </div>
+        <img id="poster" style="width:200px; height:auto;">
+        <h2 id="title"></h2>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- hls.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.4/dist/hls.min.js"></script>
+  <script>
+    // -------------------------
+    // CHANNEL LIST (edit here)
+    // -------------------------
+    const channels = [
+  {
+    "id": "896",
+    "name": "Sun TV HD",
+    "logo": "http://127.0.0.1:5001/jtvimage/Sun_TV_HD.png",
+    "url": "http://127.0.0.1:5001/live/896.m3u8",
+    "group": "Entertainment",
+    "language": "Tamil",
+    "resolution": "1920x1080"
+  },
+  {
+    "id": "894",
+    "name": "KTV HD",
+    "logo": "http://127.0.0.1:5001/jtvimage/KTV_HD.png",
+    "url": "http://127.0.0.1:5001/live/894.m3u8",
+    "group": "Movies",
+    "language": "Tamil",
+    "resolution": "1920x1080"
+  },
+  {
+    "id": "709",
+    "name": "Adithya TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/Adithya_TV.png",
+    "url": "http://127.0.0.1:5001/live/709.m3u8",
+    "group": "Entertainment",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "847",
+    "name": "MK TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/MK_TV.png",
+    "url": "http://127.0.0.1:5001/live/847.m3u8",
+    "group": "Entertainment",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "705",
+    "name": "Polimer TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/Polimer_TV.png",
+    "url": "http://127.0.0.1:5001/live/705.m3u8",
+    "group": "Entertainment",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "1371",
+    "name": "Colors Tamil",
+    "logo": "http://127.0.0.1:5001/jtvimage/Colors_Tamil.png",
+    "url": "http://127.0.0.1:5001/live/1371.m3u8",
+    "group": "Entertainment",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "417",
+    "name": "J Movies",
+    "logo": "http://127.0.0.1:5001/jtvimage/J_Movies.png",
+    "url": "http://127.0.0.1:5001/live/417.m3u8",
+    "group": "Movies",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "683",
+    "name": "Raj Digital Plus",
+    "logo": "http://127.0.0.1:5001/jtvimage/Raj_Digital_Plus.png",
+    "url": "http://127.0.0.1:5001/live/683.m3u8",
+    "group": "Movies",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "1647",
+    "name": "MK Six",
+    "logo": "http://127.0.0.1:5001/jtvimage/MK_Six.png",
+    "url": "http://127.0.0.1:5001/live/1647.m3u8",
+    "group": "Entertainment",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "707",
+    "name": "Raj TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/Raj_TV.png",
+    "url": "http://127.0.0.1:5001/live/707.m3u8",
+    "group": "Entertainment",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "796",
+    "name": "Peppers TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/Peppers_TV.png",
+    "url": "http://127.0.0.1:5001/live/796.m3u8",
+    "group": "Entertainment",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "708",
+    "name": "Makkal TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/Makkal_TV.png",
+    "url": "http://127.0.0.1:5001/live/708.m3u8",
+    "group": "Entertainment",
+    "language": "Tamil",
+    "resolution": "1024x768"
+  },
+  {
+    "id": "824",
+    "name": "Puthu Yugam",
+    "logo": "http://127.0.0.1:5001/jtvimage/Puthu_Yugam.png",
+    "url": "http://127.0.0.1:5001/live/824.m3u8",
+    "group": "Entertainment",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "826",
+    "name": "Malai Murasu",
+    "logo": "http://127.0.0.1:5001/jtvimage/Malai_Murasu.png",
+    "url": "http://127.0.0.1:5001/live/826.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "857",
+    "name": "Vendhar TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/Vendhar_TV.png",
+    "url": "http://127.0.0.1:5001/live/857.m3u8",
+    "group": "Entertainment",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "3004",
+    "name": "Velicham Tv",
+    "logo": "http://127.0.0.1:5001/jtvimage/Velicham_Tv.png",
+    "url": "http://127.0.0.1:5001/live/3004.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "1024x768"
+  },
+  {
+    "id": "3059",
+    "name": "Thanthi One",
+    "logo": "http://127.0.0.1:5001/jtvimage/Thanti_One.png",
+    "url": "http://127.0.0.1:5001/live/3059.m3u8",
+    "group": "Entertainment",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "3175",
+    "name": "Tamil Naaptol",
+    "logo": "http://127.0.0.1:5001/jtvimage/Tamil_Naaptol.png",
+    "url": "http://127.0.0.1:5001/live/3175.m3u8",
+    "group": "Shopping",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "418",
+    "name": "Jaya Plus",
+    "logo": "http://127.0.0.1:5001/jtvimage/Jaya_Plus.png",
+    "url": "http://127.0.0.1:5001/live/418.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "419",
+    "name": "Jaya TV HD",
+    "logo": "http://127.0.0.1:5001/jtvimage/Jaya_TV_HD.png",
+    "url": "http://127.0.0.1:5001/live/419.m3u8",
+    "group": "Entertainment",
+    "language": "Tamil",
+    "resolution": "1920x1080"
+  },
+  {
+    "id": "429",
+    "name": "Colors Tamil HD",
+    "logo": "http://127.0.0.1:5001/jtvimage/Colors_Tamil_HD.png",
+    "url": "http://127.0.0.1:5001/live/429.m3u8",
+    "group": "Entertainment",
+    "language": "Tamil",
+    "resolution": "1280x720"
+  },
+  {
+    "id": "726",
+    "name": "DD5 Podhigai",
+    "logo": "http://127.0.0.1:5001/jtvimage/DD5_Podhigai.png",
+    "url": "http://127.0.0.1:5001/live/726.m3u8",
+    "group": "Entertainment",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "2958",
+    "name": "Tamilan Television",
+    "logo": "http://127.0.0.1:5001/jtvimage/Tamilan_Television.png",
+    "url": "http://127.0.0.1:5001/live/2958.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "682",
+    "name": "Sun Life",
+    "logo": "http://127.0.0.1:5001/jtvimage/Sun_Life.png",
+    "url": "http://127.0.0.1:5001/live/682.m3u8",
+    "group": "Movies",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "727",
+    "name": "Vasanth TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/Vasanth_TV.png",
+    "url": "http://127.0.0.1:5001/live/727.m3u8",
+    "group": "Entertainment",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "843",
+    "name": "Madhimugam TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/Madhimugam_TV.png",
+    "url": "http://127.0.0.1:5001/live/843.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "1024x768"
+  },
+  {
+    "id": "873",
+    "name": "Sony Yay Tamil",
+    "logo": "http://127.0.0.1:5001/jtvimage/Sony_Yay_Tamil.png",
+    "url": "http://127.0.0.1:5001/live/873.m3u8",
+    "group": "Kids",
+    "language": "Tamil",
+    "resolution": "1280x720"
+  },
+  {
+    "id": "817",
+    "name": "Cartoon Network Tamil",
+    "logo": "http://127.0.0.1:5001/jtvimage/Cartoon_Network_Tamil.png",
+    "url": "http://127.0.0.1:5001/live/817.m3u8",
+    "group": "Kids",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "1081",
+    "name": "CN HD+ Tamil",
+    "logo": "http://127.0.0.1:5001/jtvimage/CN_HD_Tamil.png",
+    "url": "http://127.0.0.1:5001/live/1081.m3u8",
+    "group": "Kids",
+    "language": "Tamil",
+    "resolution": "1280x720"
+  },
+  {
+    "id": "542",
+    "name": "Pogo Tamil",
+    "logo": "http://127.0.0.1:5001/jtvimage/Pogo_Tamil.png",
+    "url": "http://127.0.0.1:5001/live/542.m3u8",
+    "group": "Kids",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "557",
+    "name": "Chutti TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/Chutti_TV.png",
+    "url": "http://127.0.0.1:5001/live/557.m3u8",
+    "group": "Kids",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "290",
+    "name": "sonic Tamil",
+    "logo": "http://127.0.0.1:5001/jtvimage/sonic_Tamil.png",
+    "url": "http://127.0.0.1:5001/live/290.m3u8",
+    "group": "Kids",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "546",
+    "name": "Nick Tamil",
+    "logo": "http://127.0.0.1:5001/jtvimage/Nick_Tamil.png",
+    "url": "http://127.0.0.1:5001/live/546.m3u8",
+    "group": "Kids",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "550",
+    "name": "Discovery Kids Tamil",
+    "logo": "http://127.0.0.1:5001/jtvimage/Discovery_Kids_Tamil.png",
+    "url": "http://127.0.0.1:5001/live/550.m3u8",
+    "group": "Kids",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "569",
+    "name": "D Tamil",
+    "logo": "http://127.0.0.1:5001/jtvimage/Discovery_Channel_Tamil.png",
+    "url": "http://127.0.0.1:5001/live/569.m3u8",
+    "group": "Infotainment",
+    "language": "Tamil",
+    "resolution": "1280x960"
+  },
+  {
+    "id": "814",
+    "name": "Travelxp Tamil",
+    "logo": "http://127.0.0.1:5001/jtvimage/Travel_XP_Tamil.png",
+    "url": "http://127.0.0.1:5001/live/814.m3u8",
+    "group": "Lifestyle",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "579",
+    "name": "History TV18 HD Tamil",
+    "logo": "http://127.0.0.1:5001/jtvimage/History_18_Tamil.png",
+    "url": "http://127.0.0.1:5001/live/579.m3u8",
+    "group": "Infotainment",
+    "language": "Tamil",
+    "resolution": "1920x1080"
+  },
+  {
+    "id": "1219",
+    "name": "Animal Planet HD Tamil",
+    "logo": "http://127.0.0.1:5001/jtvimage/Animal_Planet_Tam_HD.png",
+    "url": "http://127.0.0.1:5001/live/1219.m3u8",
+    "group": "Infotainment",
+    "language": "Tamil",
+    "resolution": "1920x1080"
+  },
+  {
+    "id": "420",
+    "name": "Jaya Max",
+    "logo": "http://127.0.0.1:5001/jtvimage/Jaya_Max.png",
+    "url": "http://127.0.0.1:5001/live/420.m3u8",
+    "group": "Music",
+    "language": "Tamil",
+    "resolution": "1024x768"
+  },
+  {
+    "id": "748",
+    "name": "Raj Musix",
+    "logo": "http://127.0.0.1:5001/jtvimage/Raj_Musix.png",
+    "url": "http://127.0.0.1:5001/live/748.m3u8",
+    "group": "Music",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "803",
+    "name": "Tunes 6",
+    "logo": "http://127.0.0.1:5001/jtvimage/Tunes_6.png",
+    "url": "http://127.0.0.1:5001/live/803.m3u8",
+    "group": "Music",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "845",
+    "name": "MK Music",
+    "logo": "http://127.0.0.1:5001/jtvimage/MK_Music.png",
+    "url": "http://127.0.0.1:5001/live/845.m3u8",
+    "group": "Music",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "895",
+    "name": "Sun Music HD",
+    "logo": "http://127.0.0.1:5001/jtvimage/Sun_Music_HD.png",
+    "url": "http://127.0.0.1:5001/live/895.m3u8",
+    "group": "Music",
+    "language": "Tamil",
+    "resolution": "1920x1080"
+  },
+  {
+    "id": "971",
+    "name": "Vaanavil TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/Vaanavil_TV.png",
+    "url": "http://127.0.0.1:5001/live/971.m3u8",
+    "group": "Entertainment",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "603",
+    "name": "Nambikkai",
+    "logo": "http://127.0.0.1:5001/jtvimage/Nambikkai.png",
+    "url": "http://127.0.0.1:5001/live/603.m3u8",
+    "group": "Devotional",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "835",
+    "name": "Angel TV HD",
+    "logo": "http://127.0.0.1:5001/jtvimage/Angel_TV_HD.png",
+    "url": "http://127.0.0.1:5001/live/835.m3u8",
+    "group": "Devotional",
+    "language": "Tamil",
+    "resolution": "1280x720"
+  },
+  {
+    "id": "1738",
+    "name": "Hosanna TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/Hosanna_TV.png",
+    "url": "http://127.0.0.1:5001/live/1738.m3u8",
+    "group": "Devotional",
+    "language": "Tamil",
+    "resolution": "Unknown"
+  },
+  {
+    "id": "1772",
+    "name": "Sony Ten 4 HD Tamil",
+    "logo": "http://127.0.0.1:5001/jtvimage/Ten_4_HD_Tamil.png",
+    "url": "http://127.0.0.1:5001/live/1772.m3u8",
+    "group": "Sports",
+    "language": "Tamil",
+    "resolution": "Unknown"
+  },
+  {
+    "id": "1774",
+    "name": "Sony Ten 4 Tamil",
+    "logo": "http://127.0.0.1:5001/jtvimage/Ten_4_Tamil.png",
+    "url": "http://127.0.0.1:5001/live/1774.m3u8",
+    "group": "Sports",
+    "language": "Tamil",
+    "resolution": "Unknown"
+  },
+  {
+    "id": "615",
+    "name": "News 18 Tamilnadu",
+    "logo": "http://127.0.0.1:5001/jtvimage/News_18_Tamilnadu.png",
+    "url": "http://127.0.0.1:5001/live/615.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "1280x720"
+  },
+  {
+    "id": "636",
+    "name": "Polimer News",
+    "logo": "http://127.0.0.1:5001/jtvimage/Polimer_News.png",
+    "url": "http://127.0.0.1:5001/live/636.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "671",
+    "name": "Sathiyam TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/Sathiyam.png",
+    "url": "http://127.0.0.1:5001/live/671.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "673",
+    "name": "News7 Tamil",
+    "logo": "http://127.0.0.1:5001/jtvimage/News7_Tamil.png",
+    "url": "http://127.0.0.1:5001/live/673.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "676",
+    "name": "Sun News",
+    "logo": "http://127.0.0.1:5001/jtvimage/Sun_News.png",
+    "url": "http://127.0.0.1:5001/live/676.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "1920x1080"
+  },
+  {
+    "id": "677",
+    "name": "Puthiya Thalimurai",
+    "logo": "http://127.0.0.1:5001/jtvimage/Puthiya_Thalimurai.png",
+    "url": "http://127.0.0.1:5001/live/677.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "767",
+    "name": "Raj News\u00a024x7",
+    "logo": "http://127.0.0.1:5001/jtvimage/Raj_News_24x7.png",
+    "url": "http://127.0.0.1:5001/live/767.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "830",
+    "name": "Thanthi TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/Thanthi_TV.png",
+    "url": "http://127.0.0.1:5001/live/830.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "913",
+    "name": "Lotus News",
+    "logo": "http://127.0.0.1:5001/jtvimage/Lotus_News.png",
+    "url": "http://127.0.0.1:5001/live/913.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "Unknown"
+  },
+  {
+    "id": "937",
+    "name": "Sai TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/SaiTV.png",
+    "url": "http://127.0.0.1:5001/live/937.m3u8",
+    "group": "Devotional",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "970",
+    "name": "Win TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/Win_TV.png",
+    "url": "http://127.0.0.1:5001/live/970.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "1209",
+    "name": "Kalaignar TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/Kalaignar_TV.png",
+    "url": "http://127.0.0.1:5001/live/1209.m3u8",
+    "group": "Entertainment",
+    "language": "Tamil",
+    "resolution": "1024x768"
+  },
+  {
+    "id": "1210",
+    "name": "Kalaignar Seithigal",
+    "logo": "http://127.0.0.1:5001/jtvimage/Kalaignar_Seithigal_.png",
+    "url": "http://127.0.0.1:5001/live/1210.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "1417",
+    "name": "SVBC2",
+    "logo": "http://127.0.0.1:5001/jtvimage/SVBC2.png",
+    "url": "http://127.0.0.1:5001/live/1417.m3u8",
+    "group": "Devotional",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "1438",
+    "name": "Velukkudi Discourses",
+    "logo": "http://127.0.0.1:5001/jtvimage/Velukkudi_Discourses.png",
+    "url": "http://127.0.0.1:5001/live/1438.m3u8",
+    "group": "Devotional",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "1515",
+    "name": "News J",
+    "logo": "http://127.0.0.1:5001/jtvimage/News_J.png",
+    "url": "http://127.0.0.1:5001/live/1515.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "1518",
+    "name": "Moon TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/Moon_Tv.png",
+    "url": "http://127.0.0.1:5001/live/1518.m3u8",
+    "group": "Entertainment",
+    "language": "Tamil",
+    "resolution": "Unknown"
+  },
+  {
+    "id": "1537",
+    "name": "RadheKrishna TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/RadheKrishna_TV.png",
+    "url": "http://127.0.0.1:5001/live/1537.m3u8",
+    "group": "Devotional",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "1655",
+    "name": "Madha TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/Madha_TV.png",
+    "url": "http://127.0.0.1:5001/live/1655.m3u8",
+    "group": "Devotional",
+    "language": "Tamil",
+    "resolution": "1024x768"
+  },
+  {
+    "id": "1731",
+    "name": "N5TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/N5TV.png",
+    "url": "http://127.0.0.1:5001/live/1731.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "Unknown"
+  },
+  {
+    "id": "1850",
+    "name": "SVBC",
+    "logo": "http://127.0.0.1:5001/jtvimage/SVBC.png",
+    "url": "http://127.0.0.1:5001/live/1850.m3u8",
+    "group": "Devotional",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "1858",
+    "name": "SVBC3",
+    "logo": "http://127.0.0.1:5001/jtvimage/SVBC3.png",
+    "url": "http://127.0.0.1:5001/live/1858.m3u8",
+    "group": "Devotional",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "1859",
+    "name": "SVBC4",
+    "logo": "http://127.0.0.1:5001/jtvimage/SVBC4.png",
+    "url": "http://127.0.0.1:5001/live/1859.m3u8",
+    "group": "Devotional",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "1954",
+    "name": "News Tamil 24x7",
+    "logo": "http://127.0.0.1:5001/jtvimage/News_Tamil_24x7.png",
+    "url": "http://127.0.0.1:5001/live/1954.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "960x540"
+  },
+  {
+    "id": "2351",
+    "name": "SRS Bhakti TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/SRS_Bhakti_TV.png",
+    "url": "http://127.0.0.1:5001/live/2351.m3u8",
+    "group": "Devotional",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "2434",
+    "name": "M Nadu",
+    "logo": "http://127.0.0.1:5001/jtvimage/M_Nadu.png",
+    "url": "http://127.0.0.1:5001/live/2434.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "2768",
+    "name": "Jothi TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/Jothi_TV.png",
+    "url": "http://127.0.0.1:5001/live/2768.m3u8",
+    "group": "Devotional",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "3045",
+    "name": "Tamil Janam",
+    "logo": "http://127.0.0.1:5001/jtvimage/Janam_Tamil.png",
+    "url": "http://127.0.0.1:5001/live/3045.m3u8",
+    "group": "News",
+    "language": "Tamil",
+    "resolution": "1024x576"
+  },
+  {
+    "id": "3221",
+    "name": "Sri Naga Sai Mandir",
+    "logo": "http://127.0.0.1:5001/jtvimage/Sri_Naga_Sai_Mandir.png",
+    "url": "http://127.0.0.1:5001/live/3221.m3u8",
+    "group": "Devotional",
+    "language": "Tamil",
+    "resolution": "1920x1080"
+  },
+  {
+    "id": "3279",
+    "name": "OM TV",
+    "logo": "http://127.0.0.1:5001/jtvimage/OM_TV.png",
+    "url": "http://127.0.0.1:5001/live/3279.m3u8",
+    "group": "Devotional",
+    "language": "Tamil",
+    "resolution": "960x540"
+  },
+  {
+    "id": "3300",
+    "name": "R TV Bhakthi",
+    "logo": "http://127.0.0.1:5001/jtvimage/R_TV_Bhakthi.png",
+    "url": "http://127.0.0.1:5001/live/3300.m3u8",
+    "group": "Devotional",
+    "language": "Tamil",
+    "resolution": "Unknown"
+  }
+]
+    // -------------------------
+    // DOM
+    // -------------------------
+    const video = document.getElementById('player');
+    const logo = document.getElementById('logo');
+    const channelName = document.getElementById('channelName');
+    const showName = document.getElementById('showName');
+    const endTime = document.getElementById('endTime');
+    const flash = document.getElementById('flash');
+
+    let idx = 0;
+    let hls = null;
+    let isMuted = false;
+    async function fetchAndExtractData(url) {
+  try {
+    console.log(`Fetching data from: ${url}`);
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error(`HTTP error ${response.status}`);
+    }
+
+    const htmlText = await response.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlText, 'text/html');
+
+    const showName = doc.getElementById('showname')?.textContent?.trim() || '';
+    const posterUrl = doc.getElementById('episodePoster')?.getAttribute('src') || '';
+
+    return { showName, posterUrl };
+
+  } catch (error) {
+    console.error("Fetch error:", error.message);
+    return null;
+  }
+}
+
+    // try to play initial channel
+    function loadChannel(index, autoplay=true) {
+      idx = (index + channels.length) % channels.length;
+      const ch = channels[idx];
+      async function loadShowDetails() {
+        const url = `http://127.0.0.1:5001/play/${idx}`;
+        const data = await fetchAndExtractData(url);
+
+        if (!data) return;
+
+        document.getElementById("poster").src = data.posterUrl;
+        document.getElementById("title").textContent = data.showName;
+      }
+      loadShowDetails();
+
+      // update UI
+      logo.src = ch.logo;
+      channelName.textContent = ch.name;
+      showName.textContent = ch.currentShow || 'Live';
+      endTime.textContent = ch.endTime || '';
+
+      // visual flash cue
+      flash.style.display = 'block';
+      setTimeout(()=> flash.style.display='none', 500);
+
+      // load HLS
+      const src = ch.url;
+      if (hls) { hls.destroy(); hls = null; }
+
+      // native HLS (Safari) can play directly
+      if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = src;
+        if (autoplay) tryPlay();
+      } else if (Hls.isSupported()) {
+        hls = new Hls({ maxBufferLength: 30 });
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MEDIA_ATTACHED, function () {
+          hls.loadSource(src);
+          if (autoplay) tryPlay();
+        });
+        hls.on(Hls.Events.ERROR, function(event, data) {
+          console.warn('hls error', data);
+        });
+      } else {
+        // fallback: set src and hope for the best
+        video.src = src;
+        if (autoplay) tryPlay();
+      }
+    }
+
+    // attempt play & unmute, fallback to muted play if browser blocks
+    async function tryPlay() {
+      try {
+        video.muted = isMuted ? true : false;
+        await video.play(); // browsers may block sound; triggers a user gesture requirement
+      } catch (err) {
+        // try muted autoplay (allowed on many browsers)
+        try {
+          video.muted = true;
+          await video.play();
+          isMuted = true;
+        } catch (err2) {
+          console.warn('Autoplay blocked', err2);
+        }
+      }
+    }
+    // keyboard controls
+let autoClickTimeout = null;
+
+window.addEventListener('keydown', (ev) => {
+  if (ev.key === 'ArrowLeft') {
+    loadChannel(idx - 1);
+    triggerAutoClick();
+  } else if (ev.key === 'ArrowRight') {
+    loadChannel(idx + 1);
+    triggerAutoClick();
+  } else if (ev.key === 'm' || ev.key === 'M') {
+    // toggle mute
+    isMuted = !isMuted;
+    video.muted = isMuted;
+  }
+});
+
+    // keyboard controls
+    function triggerAutoClick() {
+  // cancel previous timeout if user clicks arrows fast
+  if (autoClickTimeout) clearTimeout(autoClickTimeout);
+
+  autoClickTimeout = setTimeout(() => {
+    // simulate user click to initiate play/unmute
+    if (isMuted) {
+      video.click();
+    }
+    
+  }, 1500);
+}
+
+
+    // click toggles mute/play (useful for mobile & browsers)
+    video.addEventListener('click', async () => {
+      if (video.paused) {
+        await tryPlay();
+      } else {
+        // toggle mute first, then play if needed
+        isMuted = !isMuted;
+        video.muted = isMuted;
+      }
+    });
+
+    // initialize
+    loadChannel(0, true);
+
+    // helper: if network or file server issues, log them
+    video.addEventListener('error', (e) => console.error('Video element error', e));
+  </script>
+</body>
+</html>
